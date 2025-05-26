@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
-const bodyParser = require('body-parser');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
@@ -12,7 +11,8 @@ const config = {
 
 const client = new line.Client(config);
 const app = express();
-app.use(bodyParser.json());
+
+// 不要用 app.use(bodyParser.json());
 
 const dbPath = path.join(__dirname, 'vocabulary.db');
 
@@ -70,4 +70,3 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
   console.log(`🚀 LINE Bot 伺服器啟動中：http://localhost:${PORT}`);
 });
-
