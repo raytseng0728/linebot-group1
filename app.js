@@ -13,6 +13,7 @@ const client = new line.Client(config);
 const app = express();
 
 const dbPath = path.join(__dirname, 'vocabulary.db');
+console.log('🔍 使用中的資料庫路徑：', dbPath);
 
 // Promise 包裝 sqlite3 run
 function runAsync(db, sql, params=[]) {
