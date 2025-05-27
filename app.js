@@ -15,18 +15,18 @@ const app = express();
 const dbPath = path.join(__dirname, 'vocabulary.db');
 console.log('🔍 使用中的資料庫路徑：', dbPath);
 
-// Promise 包裝 sqlite3 run
-function runAsync(db, sql, params=[]) {
+// 封裝 sqlite3 的 run 為 Promise
+function runAsync(db, sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
+    db.run(sql, params, function (err) {
       if (err) reject(err);
       else resolve(this);
     });
   });
 }
 
-// Promise 包裝 sqlite3 all
-function allAsync(db, sql, params=[]) {
+// 封裝 sqlite3 的 all 為 Promise
+function allAsync(db, sql, params = []) {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) reject(err);
@@ -35,16 +35,24 @@ function allAsync(db, sql, params=[]) {
   });
 }
 
-const initUserTable = () => {
+// 初始化 users 資料表
+function initUserTable() {
   const db = new sqlite3.Database(dbPath);
   db.run(`CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     display_name TEXT,
-    join_date TEXT
-  )`);
+    join_date TEXT DEFAULT (datetime('now'))
+  )`, (err) => {
+    if (err) {
+      console.error('❌ 建立 users 資料表失敗:', err.message);
+    } else {
+      console.log('✅ users 資料表確認完成');
+    }
+  });
   db.close();
-};
+}
 
+// Webhook 處理邏輯
 app.post('/webhook', line.middleware(config), async (req, res) => {
   console.log('📥 收到 webhook');
   const events = req.body.events;
@@ -67,9 +75,10 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
           const db = new sqlite3.Database(dbPath);
 
           try {
-            await runAsync(db, 
-              `INSERT OR IGNORE INTO users (user_id, display_name, join_date) VALUES (?, ?, datetime('now'))`, 
+            await runAsync(db,
+              `INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)`,
               [userId, displayName]);
+
             console.log(`✅ 使用者儲存成功：${displayName}`);
 
             await client.replyMessage(event.replyToken, {
@@ -77,6 +86,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
               text: `📘 歡迎使用英文單字推播機器人，${displayName}！我們會每天幫你複習單字。請持續關注～`
             });
             console.log('✅ 已送出歡迎訊息');
+
           } catch (dbErr) {
             console.error('🚫 儲存使用者失敗:', dbErr.message);
             await client.replyMessage(event.replyToken, {
@@ -95,6 +105,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
           });
         }
       }
+
       else if (text === '/showusers') {
         console.log('✅ 觸發 /showusers 指令');
         const db = new sqlite3.Database(dbPath);
@@ -111,14 +122,14 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
               .join('\n');
             await client.replyMessage(event.replyToken, {
               type: 'text',
-              text: `📋 目前資料庫使用者列表：\n${userList}`
+              text: `📋 使用者列表：\n${userList}`
             });
           }
         } catch (err) {
-          console.error('🚫 查詢使用者錯誤:', err.message);
+          console.error('🚫 查詢使用者失敗:', err.message);
           await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: '❌ 查詢使用者資料失敗'
+            text: '❌ 查詢使用者失敗'
           });
         } finally {
           db.close();
@@ -130,9 +141,11 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   res.status(200).end();
 });
 
+// 建立 users 表
 initUserTable();
 
+// 啟動伺服器
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
-  console.log(`🚀 LINE Bot 伺服器啟動中：http://localhost:${PORT}`);
+  console.log(`🚀 LINE Bot 伺服器啟動：http://localhost:${PORT}`);
 });
