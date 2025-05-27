@@ -12,8 +12,27 @@ const config = {
 const client = new line.Client(config);
 const app = express();
 
-// 使用 line.middleware 會自動解析 JSON，所以不用 body-parser
 const dbPath = path.join(__dirname, 'vocabulary.db');
+
+// Promise 包裝 sqlite3 run
+function runAsync(db, sql, params=[]) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
+}
+
+// Promise 包裝 sqlite3 all
+function allAsync(db, sql, params=[]) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
 
 const initUserTable = () => {
   const db = new sqlite3.Database(dbPath);
@@ -45,28 +64,28 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
           console.log(`👤 使用者名稱：${displayName}`);
 
           const db = new sqlite3.Database(dbPath);
-          db.run(
-            `INSERT OR IGNORE INTO users (user_id, display_name, join_date) VALUES (?, ?, datetime('now'))`,
-            [userId, displayName],
-            async (err) => {
-              if (err) {
-                console.error('🚫 儲存使用者失敗:', err.message);
-                // 回覆錯誤訊息
-                await client.replyMessage(event.replyToken, {
-                  type: 'text',
-                  text: `❌ 儲存使用者時發生錯誤，請稍後再試。`
-                });
-              } else {
-                console.log(`✅ 使用者儲存成功：${displayName}`);
-                await client.replyMessage(event.replyToken, {
-                  type: 'text',
-                  text: `📘 歡迎使用英文單字推播機器人，${displayName}！我們會每天幫你複習單字。請持續關注～`
-                });
-                console.log('✅ 已送出歡迎訊息');
-              }
-              db.close();
-            }
-          );
+
+          try {
+            await runAsync(db, 
+              `INSERT OR IGNORE INTO users (user_id, display_name, join_date) VALUES (?, ?, datetime('now'))`, 
+              [userId, displayName]);
+            console.log(`✅ 使用者儲存成功：${displayName}`);
+
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: `📘 歡迎使用英文單字推播機器人，${displayName}！我們會每天幫你複習單字。請持續關注～`
+            });
+            console.log('✅ 已送出歡迎訊息');
+          } catch (dbErr) {
+            console.error('🚫 儲存使用者失敗:', dbErr.message);
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: `❌ 儲存使用者時發生錯誤，請稍後再試。`
+            });
+          } finally {
+            db.close();
+          }
+
         } catch (err) {
           console.error('🚫 發生錯誤：', err);
           await client.replyMessage(event.replyToken, {
@@ -76,40 +95,32 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
         }
       }
       else if (text === '/showusers') {
-        // 新增 /showusers 指令，查詢所有使用者並回覆清單
+        console.log('✅ 觸發 /showusers 指令');
+        const db = new sqlite3.Database(dbPath);
         try {
-          const db = new sqlite3.Database(dbPath);
-          db.all(`SELECT display_name, join_date FROM users`, [], async (err, rows) => {
-            if (err) {
-              console.error('🚫 查詢使用者錯誤:', err.message);
-              await client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: '❌ 查詢使用者資料失敗'
-              });
-            } else {
-              if (rows.length === 0) {
-                await client.replyMessage(event.replyToken, {
-                  type: 'text',
-                  text: '目前資料庫沒有使用者資料。'
-                });
-              } else {
-                const userList = rows
-                  .map((row, i) => `${i + 1}. ${row.display_name} (加入於 ${row.join_date})`)
-                  .join('\n');
-                await client.replyMessage(event.replyToken, {
-                  type: 'text',
-                  text: `📋 目前資料庫使用者列表：\n${userList}`
-                });
-              }
-            }
-            db.close();
-          });
+          const rows = await allAsync(db, `SELECT display_name, join_date FROM users ORDER BY join_date ASC`);
+          if (rows.length === 0) {
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: '目前資料庫沒有使用者資料。'
+            });
+          } else {
+            const userList = rows
+              .map((row, i) => `${i + 1}. ${row.display_name} (加入於 ${row.join_date})`)
+              .join('\n');
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: `📋 目前資料庫使用者列表：\n${userList}`
+            });
+          }
         } catch (err) {
-          console.error('🚫 /showusers 發生錯誤：', err);
+          console.error('🚫 查詢使用者錯誤:', err.message);
           await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: `❌ 查詢使用者時發生錯誤，請稍後再試。`
+            text: '❌ 查詢使用者資料失敗'
           });
+        } finally {
+          db.close();
         }
       }
     }
