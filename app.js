@@ -19,7 +19,7 @@ const client = new line.Client(config);
 const dbPath = path.join(__dirname, 'vocabulary.db');
 console.log('🔍 使用中的資料庫路徑：', dbPath);
 
-// 確認目前專案下的所有 .db 檔案
+// 顯示所有 .db 檔案
 console.log('📁 專案中發現的 .db 檔案：');
 fs.readdirSync(__dirname)
   .filter(file => file.endsWith('.db'))
@@ -42,9 +42,15 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-app.post('/webhook', express.json(), (req, res) => {
+// ❗ 不要加 express.json()
+app.post('/webhook', line.middleware(config), (req, res) => {
   console.log('📥 收到 webhook');
-  Promise.all(req.body.events.map(handleEvent)).then(result => res.json(result));
+  Promise.all(req.body.events.map(handleEvent))
+    .then(result => res.json(result))
+    .catch(err => {
+      console.error('❌ webhook 處理錯誤：', err);
+      res.status(500).end();
+    });
 });
 
 async function handleEvent(event) {
@@ -59,7 +65,6 @@ async function handleEvent(event) {
 
   console.log(`📨 來自 ${userId} 的訊息：${userMessage}`);
 
-  // 處理 /start 指令
   if (userMessage === '/start') {
     const profile = await client.getProfile(userId);
     const name = profile.displayName;
@@ -67,7 +72,6 @@ async function handleEvent(event) {
     console.log('✅ 觸發 /start 指令');
     console.log('👤 使用者名稱：' + name);
 
-    // 查看目前資料表
     db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
       if (err) {
         console.error('❌ 查詢資料表錯誤：', err.message);
@@ -95,35 +99,35 @@ async function handleEvent(event) {
     });
   }
 
-  // 處理 /showusers 指令
   if (userMessage === '/showusers') {
     console.log('✅ 觸發 /showusers 指令');
-    db.all(`SELECT * FROM users`, (err, rows) => {
-      if (err) {
-        console.error('❌ 查詢錯誤：', err.message);
-        return client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '查詢使用者時發生錯誤'
-        });
-      } else {
-        console.log('📋 查詢到的使用者資料：', rows);
-        if (rows.length === 0) {
-          return client.replyMessage(event.replyToken, {
+    return new Promise((resolve) => {
+      db.all(`SELECT * FROM users`, (err, rows) => {
+        if (err) {
+          console.error('❌ 查詢錯誤：', err.message);
+          resolve(client.replyMessage(event.replyToken, {
             type: 'text',
-            text: '📭 使用者列表為空'
-          });
+            text: '查詢使用者時發生錯誤'
+          }));
         } else {
-          const userList = rows.map(u => `• ${u.name} (${u.id})`).join('\n');
-          return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: `📋 使用者列表：\n${userList}`
-          });
+          console.log('📋 查詢到的使用者資料：', rows);
+          if (rows.length === 0) {
+            resolve(client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: '📭 使用者列表為空'
+            }));
+          } else {
+            const userList = rows.map(u => `• ${u.name} (${u.id})`).join('\n');
+            resolve(client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: `📋 使用者列表：\n${userList}`
+            }));
+          }
         }
-      }
+      });
     });
   }
 
-  // 預設回覆
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: '請輸入 /start 或 /showusers'
