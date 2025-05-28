@@ -4,13 +4,25 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 
+require('dotenv').config(); // 確保載入 .env（本地用）
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Line Bot 設定
+// 讀取環境變數，並檢查
+const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
+
+if (!CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
+  console.error('❌ 缺少 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_CHANNEL_SECRET，請檢查環境變數');
+  process.exit(1);
+}
+
+console.log('✅ LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 已載入');
+
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
+  channelAccessToken: CHANNEL_ACCESS_TOKEN,
+  channelSecret: CHANNEL_SECRET,
 };
 
 const client = new line.Client(config);
@@ -19,7 +31,6 @@ const client = new line.Client(config);
 const dbPath = path.join(__dirname, 'vocabulary.db');
 console.log('🔍 使用中的資料庫路徑：', dbPath);
 
-// 顯示所有 .db 檔案
 console.log('📁 專案中發現的 .db 檔案：');
 fs.readdirSync(__dirname)
   .filter(file => file.endsWith('.db'))
@@ -42,7 +53,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-// ❗ 不要加 express.json()
+// 不要加 express.json()
 app.post('/webhook', line.middleware(config), (req, res) => {
   console.log('📥 收到 webhook');
   Promise.all(req.body.events.map(handleEvent))
@@ -66,37 +77,46 @@ async function handleEvent(event) {
   console.log(`📨 來自 ${userId} 的訊息：${userMessage}`);
 
   if (userMessage === '/start') {
-    const profile = await client.getProfile(userId);
-    const name = profile.displayName;
+    try {
+      const profile = await client.getProfile(userId);
+      const name = profile.displayName;
 
-    console.log('✅ 觸發 /start 指令');
-    console.log('👤 使用者名稱：' + name);
+      console.log('✅ 觸發 /start 指令');
+      console.log('👤 使用者名稱：' + name);
 
-    db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
-      if (err) {
-        console.error('❌ 查詢資料表錯誤：', err.message);
-      } else {
-        console.log('📋 資料庫內的資料表：', tables.map(t => t.name).join(', '));
-      }
-    });
-
-    console.log('🟡 嘗試寫入使用者到 DB...');
-    db.run(
-      `INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)`,
-      [userId, name],
-      function (err) {
+      db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
         if (err) {
-          console.error('❌ 寫入錯誤：', err.message);
+          console.error('❌ 查詢資料表錯誤：', err.message);
         } else {
-          console.log(`✅ 使用者儲存成功：${name}（影響列數：${this.changes}）`);
+          console.log('📋 資料庫內的資料表：', tables.map(t => t.name).join(', '));
         }
-      }
-    );
+      });
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `歡迎你，${name}！你已成功註冊。`
-    });
+      console.log('🟡 嘗試寫入使用者到 DB...');
+      db.run(
+        `INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)`,
+        [userId, name],
+        function (err) {
+          if (err) {
+            console.error('❌ 寫入錯誤：', err.message);
+          } else {
+            console.log(`✅ 使用者儲存成功：${name}（影響列數：${this.changes}）`);
+          }
+        }
+      );
+
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `歡迎你，${name}！你已成功註冊。`
+      });
+
+    } catch (error) {
+      console.error('❌ 取得使用者資料錯誤：', error);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '取得使用者資料失敗，請稍後再試。'
+      });
+    }
   }
 
   if (userMessage === '/showusers') {
