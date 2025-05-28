@@ -3,6 +3,8 @@ const line = require('@line/bot-sdk');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
+console.log('🔍 LINE_CHANNEL_SECRET:', process.env.LINE_CHANNEL_SECRET);
+console.log('🔍 LINE_CHANNEL_ACCESS_TOKEN:', process.env.LINE_CHANNEL_ACCESS_TOKEN);
 
 require('dotenv').config(); // 載入環境變數
 
