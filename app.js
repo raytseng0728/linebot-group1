@@ -3,6 +3,22 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
+
+const baseDir = __dirname;
+const dbPath = path.join(baseDir, 'vocabulary.db');
+
+// 印出目前使用中的資料庫路徑
+console.log('🔍 使用中的資料庫路徑：', dbPath);
+
+// 列出目前資料夾中所有 .db 檔案
+console.log('📁 專案中發現的 .db 檔案：');
+fs.readdirSync(baseDir)
+  .filter(file => file.endsWith('.db'))
+  .forEach(file => {
+    const fullPath = path.join(baseDir, file);
+    console.log(`- ${file} ➜ 絕對路徑：${fullPath}`);
+  });
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -11,9 +27,6 @@ const config = {
 
 const client = new line.Client(config);
 const app = express();
-
-const dbPath = path.join(__dirname, 'vocabulary.db');
-console.log('🔍 使用中的資料庫路徑：', dbPath);
 
 // 封裝 sqlite3 的 run 為 Promise
 function runAsync(db, sql, params = []) {
@@ -75,6 +88,10 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
           const db = new sqlite3.Database(dbPath);
 
           try {
+            // 確認資料表是否存在
+            const tables = await allAsync(db, `SELECT name FROM sqlite_master WHERE type='table'`);
+            console.log('📋 資料庫內的資料表：', tables.map(t => t.name).join(', '));
+
             await runAsync(db,
               `INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)`,
               [userId, displayName]);
