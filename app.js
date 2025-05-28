@@ -3,15 +3,15 @@ const line = require('@line/bot-sdk');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config(); // 載入環境變數
+
 console.log('🔍 LINE_CHANNEL_SECRET:', process.env.LINE_CHANNEL_SECRET);
 console.log('🔍 LINE_CHANNEL_ACCESS_TOKEN:', process.env.LINE_CHANNEL_ACCESS_TOKEN);
-
-require('dotenv').config(); // 載入環境變數
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// LINE Bot 設定，從環境變數讀取
+// LINE Bot 設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -35,7 +35,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.error('❌ 無法連線到資料庫：', err.message);
   } else {
     console.log('✅ 已連線到資料庫');
-    // 確保 users 資料表存在
     db.run(`CREATE TABLE IF NOT EXISTS users (
       user_id TEXT PRIMARY KEY,
       display_name TEXT,
@@ -44,7 +43,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-// 使用 LINE middleware 驗證簽章，並解析事件
+// webhook 接收
 app.post('/webhook', line.middleware(config), (req, res) => {
   console.log('📥 收到 webhook');
   Promise.all(req.body.events.map(handleEvent))
@@ -55,29 +54,27 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
+// 處理事件
 async function handleEvent(event) {
   console.log('👉 收到事件：', JSON.stringify(event, null, 2));
 
   if (event.type !== 'message' || event.message.type !== 'text') {
-    // 只處理文字訊息
     return null;
   }
 
   const userId = event.source.userId;
   const userMessage = event.message.text.trim();
-
   console.log(`📨 來自 ${userId} 的訊息：${userMessage}`);
 
   if (userMessage === '/start') {
     try {
-      // 取得使用者名稱
       const profile = await client.getProfile(userId);
       const name = profile.displayName;
 
       console.log('✅ 觸發 /start 指令');
-      console.log('👤 使用者名稱：' + name);
+      console.log('👤 使用者名稱：', name);
+      console.log('📌 嘗試寫入資料：', userId, name);
 
-      // 寫入資料庫（修正欄位名稱）
       db.run(
         `INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)`,
         [userId, name],
@@ -85,12 +82,23 @@ async function handleEvent(event) {
           if (err) {
             console.error('❌ 寫入錯誤：', err.message);
           } else {
-            console.log(`✅ 使用者儲存成功：${name}（影響列數：${this.changes}）`);
+            console.log(`✅ 使用者儲存成功（影響列數：${this.changes}）`);
+
+            // 印出 users 表目前所有資料
+            db.all(`SELECT * FROM users`, [], (err, rows) => {
+              if (err) {
+                console.error('❌ 查詢 users 錯誤：', err.message);
+              } else {
+                console.log('📄 目前使用者資料表內容：');
+                rows.forEach(row => {
+                  console.log(`👤 ${row.user_id} | ${row.display_name} | ${row.join_date}`);
+                });
+              }
+            });
           }
         }
       );
 
-      // 回覆使用者
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: `歡迎你，${name}！你已成功註冊。`
@@ -105,12 +113,16 @@ async function handleEvent(event) {
     }
   }
 
-  // 其他訊息回覆固定文字
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: '請輸入 /start 註冊成為會員'
   });
 }
+
+// 定時 log 檢查 server 是否活著
+setInterval(() => {
+  console.log('🟢 Bot still running at', new Date().toLocaleString());
+}, 60000);
 
 app.listen(PORT, () => {
   console.log(`🚀 LINE Bot 伺服器啟動：http://localhost:${PORT}`);
