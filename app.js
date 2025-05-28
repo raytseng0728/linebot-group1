@@ -4,25 +4,15 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 
-require('dotenv').config(); // 確保載入 .env（本地用）
+require('dotenv').config(); // 載入環境變數
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// 讀取環境變數，並檢查
-const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-
-if (!CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
-  console.error('❌ 缺少 LINE_CHANNEL_ACCESS_TOKEN 或 LINE_CHANNEL_SECRET，請檢查環境變數');
-  process.exit(1);
-}
-
-console.log('✅ LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 已載入');
-
+// LINE Bot 設定，從環境變數讀取
 const config = {
-  channelAccessToken: CHANNEL_ACCESS_TOKEN,
-  channelSecret: CHANNEL_SECRET,
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
 const client = new line.Client(config);
@@ -42,18 +32,16 @@ const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('❌ 無法連線到資料庫：', err.message);
   } else {
-    console.log('✅ users 資料表確認完成');
-    db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'", (err, row) => {
-      if (row) {
-        console.log('🧱 users 資料表結構：', row.sql);
-      } else {
-        console.log('⚠️ 尚未建立 users 資料表');
-      }
-    });
+    console.log('✅ 已連線到資料庫');
+    // 確保 users 資料表存在
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT
+    )`);
   }
 });
 
-// 不要加 express.json()
+// 使用 LINE middleware 驗證簽章，並解析事件
 app.post('/webhook', line.middleware(config), (req, res) => {
   console.log('📥 收到 webhook');
   Promise.all(req.body.events.map(handleEvent))
@@ -68,6 +56,7 @@ async function handleEvent(event) {
   console.log('👉 收到事件：', JSON.stringify(event, null, 2));
 
   if (event.type !== 'message' || event.message.type !== 'text') {
+    // 只處理文字訊息
     return null;
   }
 
@@ -78,21 +67,14 @@ async function handleEvent(event) {
 
   if (userMessage === '/start') {
     try {
+      // 取得使用者名稱
       const profile = await client.getProfile(userId);
       const name = profile.displayName;
 
       console.log('✅ 觸發 /start 指令');
       console.log('👤 使用者名稱：' + name);
 
-      db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
-        if (err) {
-          console.error('❌ 查詢資料表錯誤：', err.message);
-        } else {
-          console.log('📋 資料庫內的資料表：', tables.map(t => t.name).join(', '));
-        }
-      });
-
-      console.log('🟡 嘗試寫入使用者到 DB...');
+      // 寫入資料庫（有就忽略）
       db.run(
         `INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)`,
         [userId, name],
@@ -105,6 +87,7 @@ async function handleEvent(event) {
         }
       );
 
+      // 回覆使用者
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: `歡迎你，${name}！你已成功註冊。`
@@ -114,43 +97,15 @@ async function handleEvent(event) {
       console.error('❌ 取得使用者資料錯誤：', error);
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '取得使用者資料失敗，請稍後再試。'
+        text: '抱歉，無法取得您的資料，請稍後再試。'
       });
     }
   }
 
-  if (userMessage === '/showusers') {
-    console.log('✅ 觸發 /showusers 指令');
-    return new Promise((resolve) => {
-      db.all(`SELECT * FROM users`, (err, rows) => {
-        if (err) {
-          console.error('❌ 查詢錯誤：', err.message);
-          resolve(client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: '查詢使用者時發生錯誤'
-          }));
-        } else {
-          console.log('📋 查詢到的使用者資料：', rows);
-          if (rows.length === 0) {
-            resolve(client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: '📭 使用者列表為空'
-            }));
-          } else {
-            const userList = rows.map(u => `• ${u.name} (${u.id})`).join('\n');
-            resolve(client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: `📋 使用者列表：\n${userList}`
-            }));
-          }
-        }
-      });
-    });
-  }
-
+  // 其他訊息回覆固定文字
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: '請輸入 /start 或 /showusers'
+    text: '請輸入 /start 註冊成為會員'
   });
 }
 
