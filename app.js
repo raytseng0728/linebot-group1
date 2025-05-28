@@ -37,8 +37,9 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.log('✅ 已連線到資料庫');
     // 確保 users 資料表存在
     db.run(`CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      name TEXT
+      user_id TEXT PRIMARY KEY,
+      display_name TEXT,
+      join_date TEXT DEFAULT (datetime('now'))
     )`);
   }
 });
@@ -76,9 +77,9 @@ async function handleEvent(event) {
       console.log('✅ 觸發 /start 指令');
       console.log('👤 使用者名稱：' + name);
 
-      // 寫入資料庫（有就忽略）
+      // 寫入資料庫（修正欄位名稱）
       db.run(
-        `INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)`,
+        `INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)`,
         [userId, name],
         function (err) {
           if (err) {
