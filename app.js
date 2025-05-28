@@ -20,7 +20,9 @@ const config = {
 const client = new line.Client(config);
 
 // 初始化資料庫
-const dbPath = path.join(__dirname, 'vocabulary.db');
+// 將相對路徑改成絕對路徑（你給的路徑）
+const dbPath = 'C:/Users/etien/OneDrive/桌面/linebot-group1-main/vocabulary.db';
+
 console.log('🔍 使用中的資料庫路徑：', dbPath);
 
 console.log('📁 專案中發現的 .db 檔案：');
