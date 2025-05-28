@@ -128,7 +128,10 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
         const db = new sqlite3.Database(dbPath);
         try {
           const rows = await allAsync(db, `SELECT display_name, join_date FROM users ORDER BY join_date ASC`);
+          console.log('📋 查詢到的使用者資料：', rows);
+
           if (rows.length === 0) {
+            console.log('📭 使用者列表為空');
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: '目前資料庫沒有使用者資料。'
@@ -137,10 +140,12 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
             const userList = rows
               .map((row, i) => `${i + 1}. ${row.display_name} (加入於 ${row.join_date})`)
               .join('\n');
+            console.log('📋 組合後的使用者列表訊息：\n', userList);
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: `📋 使用者列表：\n${userList}`
             });
+            console.log('✅ 已送出使用者列表訊息');
           }
         } catch (err) {
           console.error('🚫 查詢使用者失敗:', err.message);
