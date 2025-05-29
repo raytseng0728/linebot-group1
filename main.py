@@ -7,20 +7,26 @@ import sqlite3
 import os
 from dotenv import load_dotenv
 
+# 載入環境變數
 load_dotenv()
 
 app = FastAPI()
 
-# LINE config
-line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
-handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+# 讀取環境變數
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+
+# 確認環境變數是否成功讀取
+if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
+    raise RuntimeError("請先設定 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 環境變數")
+
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # 資料庫初始化
 db_path = "vocabulary.db"
 conn = sqlite3.connect(db_path, check_same_thread=False)
 cursor = conn.cursor()
-
-print(f"🔧 正在初始化資料庫：{db_path}")
 
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS users (
@@ -57,7 +63,6 @@ CREATE TABLE IF NOT EXISTS learning_status (
 ''')
 
 conn.commit()
-print("✅ 資料庫初始化完成")
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -73,15 +78,27 @@ async def webhook(request: Request):
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    user_id = event.source.user_id
     user_message = event.message.text.strip()
 
-    # 基本回覆：把用戶說的話原封不動回覆給他
-    reply_text = f"你說的是：{user_message}"
+    if user_message == "/start":
+        profile = line_bot_api.get_profile(user_id)
+        name = profile.display_name
 
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
+        cursor.execute('''
+            INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)
+        ''', (user_id, name))
+        conn.commit()
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"歡迎你，{name}！你已成功註冊。")
+        )
+    else:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請輸入 /start 註冊成為會員")
+        )
 
 @app.get("/check-users")
 async def check_users():
