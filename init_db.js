@@ -1,8 +1,8 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// 設定資料庫路徑
-const dbPath = path.join(__dirname, 'vocabulary.db');
+// 用目前執行目錄當基準，確保能找到 vocabulary.db
+const dbPath = path.resolve(process.cwd(), 'vocabulary.db');
 const db = new sqlite3.Database(dbPath);
 
 console.log('🔧 正在初始化資料庫：', dbPath);
