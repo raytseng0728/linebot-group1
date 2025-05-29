@@ -15,7 +15,7 @@ const config = {
 
 const client = new line.Client(config);
 
-const dbPath = '/opt/render/project/src/vocabulary.db';
+const dbPath = './vocabulary.db';
 console.log('🔍 使用中的資料庫路徑：', dbPath);
 
 const db = new sqlite3.Database(dbPath, (err) => {
