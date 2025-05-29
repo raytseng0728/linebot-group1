@@ -73,27 +73,15 @@ async def webhook(request: Request):
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_id = event.source.user_id
     user_message = event.message.text.strip()
 
-    if user_message == "/start":
-        profile = line_bot_api.get_profile(user_id)
-        name = profile.display_name
+    # 基本回覆：把用戶說的話原封不動回覆給他
+    reply_text = f"你說的是：{user_message}"
 
-        cursor.execute('''
-            INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)
-        ''', (user_id, name))
-        conn.commit()
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"歡迎你，{name}！你已成功註冊。")
-        )
-    else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="請輸入 /start 註冊成為會員")
-        )
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_text)
+    )
 
 @app.get("/check-users")
 async def check_users():
