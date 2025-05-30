@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+ffrom fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -7,42 +7,30 @@ import sqlite3
 import os
 from dotenv import load_dotenv
 
-# 載入環境變數
 load_dotenv()
 
-app = FastAPI()
-
-# 讀取環境變數
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 
-# 確認環境變數是否成功讀取
 if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
     raise RuntimeError("請先設定 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 環境變數")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 資料庫初始化
-db_path = "vocabulary.db"
-conn = sqlite3.connect(db_path, check_same_thread=False)
+app = FastAPI()
+
+# 建立連線與 cursor，check_same_thread=False 允許多線程使用
+conn = sqlite3.connect("vocabulary.db", check_same_thread=False)
 cursor = conn.cursor()
 
+# 建表（如果還沒建立）
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT UNIQUE NOT NULL,
     display_name TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS vocabulary (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    word TEXT NOT NULL UNIQUE,
-    meaning TEXT,
-    difficulty INTEGER DEFAULT 1
 )
 ''')
 
@@ -68,12 +56,10 @@ conn.commit()
 async def webhook(request: Request):
     signature = request.headers.get("X-Line-Signature")
     body = await request.body()
-
     try:
         handler.handle(body.decode("utf-8"), signature)
     except InvalidSignatureError:
         raise HTTPException(status_code=400, detail="Invalid signature")
-
     return "OK"
 
 @app.get("/check-users")
@@ -94,36 +80,33 @@ def handle_message(event):
     if user_message == "/start":
         profile = line_bot_api.get_profile(user_id)
         name = profile.display_name
-
-        cursor.execute('''
-            INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)
-        ''', (user_id, name))
+        cursor.execute(
+            "INSERT OR IGNORE INTO users (user_id, display_name) VALUES (?, ?)",
+            (user_id, name)
+        )
         conn.commit()
-
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=f"\u6b61\u8fce\u4f60\uff0c{name}\uff01\u4f60\u5df2\u6210\u529f\u8a3b\u518a\u3002")
+            TextSendMessage(text=f"歡迎你，{name}！你已成功註冊。")
         )
 
-    elif user_message == "\u6211\u8981\u8907\u7fd2":
+    elif user_message == "我要複習":
         cursor.execute('''
             SELECT v.word, v.meaning
             FROM learning_status ls
             JOIN vocabulary v ON ls.word_id = v.id
-            WHERE ls.user_id = ?
+            WHERE ls.user_id = ? AND (ls.next_review IS NULL OR ls.next_review <= datetime('now'))
             ORDER BY ls.next_review ASC
             LIMIT 1
         ''', (user_id,))
         word = cursor.fetchone()
-
         if word:
-            reply = f"\u8907\u7fd2\u55ae\u5b57\uff1a{word[0]}\n\u610f\u601d\u662f\uff1a{word[1]}"
+            reply = f"複習單字：{word[0]}\n意思是：{word[1]}"
         else:
-            reply = "\u76ee\u524d\u6c92\u6709\u9700\u8981\u8907\u7fd2\u7684\u55ae\u5b57\u3002"
-
+            reply = "目前沒有需要複習的單字。"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
-    elif user_message == "\u6211\u8981\u5b78\u7fd2":
+    elif user_message == "我要學習":
         cursor.execute('''
             SELECT id, word, meaning FROM vocabulary
             WHERE id NOT IN (
@@ -132,21 +115,20 @@ def handle_message(event):
             LIMIT 1
         ''', (user_id,))
         new_word = cursor.fetchone()
-
         if new_word:
             word_id, word, meaning = new_word
+            # 新增學習清單，next_review 設為現在時間
             cursor.execute('''
-                INSERT INTO learning_status (user_id, word_id)
-                VALUES (?, ?)
+                INSERT INTO learning_status (user_id, word_id, next_review, last_review)
+                VALUES (?, ?, datetime('now'), datetime('now'))
             ''', (user_id, word_id))
             conn.commit()
-            reply = f"\u65b0\u55ae\u5b57\uff1a{word}\n\u610f\u601d\u662f\uff1a{meaning}"
+            reply = f"新單字：{word}\n意思是：{meaning}"
         else:
-            reply = "\u4f60\u5df2\u5b78\u5b8c\u6240\u6709\u55ae\u5b57\uff01"
-
+            reply = "你已學完所有單字！"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
-    elif user_message == "\u6211\u8981\u6e2c\u9a57":
+    elif user_message == "我要測驗":
         cursor.execute('''
             SELECT v.word, v.meaning
             FROM vocabulary v
@@ -156,34 +138,27 @@ def handle_message(event):
             LIMIT 1
         ''', (user_id,))
         quiz_word = cursor.fetchone()
-
         if quiz_word:
             word, meaning = quiz_word
-            reply = f"\u8acb\u554f\u300c{meaning}\u300d\u662f\u4ec0\u9ebc\u55ae\u5b57？"
+            reply = f"請問「{meaning}」是什麼單字？"
         else:
-            reply = "\u76ee\u524d\u6c92\u6709\u53ef\u4f9b\u6e2c\u9a57\u7684\u55ae\u5b57\u3002"
-
+            reply = "目前沒有可供測驗的單字。"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
-    elif user_message == "\u6211\u8981\u770b\u5b8c\u6210\u7387":
+    elif user_message == "我要完成率":
         cursor.execute("SELECT COUNT(*) FROM vocabulary")
         total = cursor.fetchone()[0]
-
-        cursor.execute('''
-            SELECT COUNT(*) FROM learning_status WHERE user_id = ?
-        ''', (user_id,))
+        cursor.execute("SELECT COUNT(*) FROM learning_status WHERE user_id = ?", (user_id,))
         learned = cursor.fetchone()[0]
-
         if total > 0:
             percent = round((learned / total) * 100, 1)
-            reply = f"\u4f60\u5df2\u5b8c\u6210 {learned}/{total} 個單字，完成率 {percent}%"
+            reply = f"你已完成 {learned}/{total} 個單字，完成率 {percent}%"
         else:
-            reply = "\u76ee\u524d\u55ae\u5b57\u5eab\u662f\u7a7a\u7684。"
-
+            reply = "目前單字庫是空的。"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
     else:
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="\u8acb輸入 /start 註冊或使用選單功能")
+            TextSendMessage(text="請輸入 /start 註冊或使用選單功能")
         )
