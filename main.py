@@ -310,8 +310,8 @@ def handle_postback(event):
         words = get_review_words_by_date(user_id, review_date)
         if words:
             word_text = "\n\n".join([
-                f"📖 {w}\n詞性：{pos or '（無）'}\n意思：{m}"
-                for w, m, pos in words[:10]
+                f"📖 {row[0]}\n詞性：{row[2] or '（無）'}\n意思：{row[1]}"
+                for row in words[:10]
             ])
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=word_text))
         else:
@@ -321,8 +321,8 @@ def handle_postback(event):
         words = get_review_words(user_id)
         if words:
             word_text = "\n\n".join([
-                f"📖 {w}\n詞性：{pos or '（無）'}\n意思：{m}"
-                for w, m, pos in words[:10]
+                f"📖 {row[0]}\n詞性：{row[2] or '（無）'}\n意思：{row[1]}"
+                for row in words[:10]
             ])
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=word_text))
         else:
