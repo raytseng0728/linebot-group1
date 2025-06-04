@@ -3,14 +3,24 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.models import (
     MessageEvent, TextMessage, PostbackEvent, TextSendMessage,
     BubbleContainer, BoxComponent, ButtonComponent, FlexSendMessage,
-    PostbackAction, TextComponent, FollowEvent
+    PostbackAction, TextComponent, FollowEvent, ImageSendMessage
 )
 from linebot.exceptions import LineBotApiError, InvalidSignatureError
-import sqlite3
-import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
+import sqlite3
 import urllib.parse
+import os
+import io
+
+# ✅ 設定 matplotlib 使用非 GUI backend
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+# 自訂模組
 from n import send_flex_menu
 from review import (
     get_review_words_by_date,
@@ -19,12 +29,8 @@ from review import (
 )
 from learn import LearnDB, handle_postback as handle_learn_postback
 from quiz import send_quiz_question
-import matplotlib.pyplot as plt
-from linebot.models import ImageSendMessage
-import os
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import Response
-import io
+
+# 載入環境變數
 load_dotenv()
 
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -65,7 +71,7 @@ def progress_chart(user_id: str):
     else:
         percent = round((learned / total) * 100, 1)
 
-    labels = ['已學習', '未學習']
+    labels = ['Leared', 'Unlearned']
     sizes = [learned, total - learned]
     explode = (0.05, 0)
     colors = ['#4CAF50', '#EEEEEE']
@@ -74,7 +80,7 @@ def progress_chart(user_id: str):
     ax.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%',
            shadow=False, startangle=90, colors=colors, textprops={'fontsize': 12})
     ax.axis('equal')
-    plt.title(f"單字完成率：{percent}% （{learned}/{total}）", fontsize=14)
+    plt.title(f"Vocabulary Completion Rate：{percent}% （{learned}/{total}）", fontsize=14)
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
@@ -183,7 +189,7 @@ def handle_message(event):
         else:
             name = row[0]
             welcome_text = f"👋 歡迎回來，{name}！請使用下方選單繼續你的學習旅程。"
-        messages = [TextSendMessage(text=welcome_text), send_flex_menu()]
+        messages = [TextSendMessage(text=welcome_text), send_flex_menu(user_id)]
         line_bot_api.reply_message(event.reply_token, messages=messages)
         return
 
@@ -254,16 +260,29 @@ def handle_message(event):
             text="抱歉，我不太懂你的指令，可以試試看選單操作喔！"
         ))
     if user_message == "完成率":
-        image_url = f"https://1b3e-163-14-216-131.ngrok-free.app/progress_chart/{user_id}"
+        image_url = f"https://a715-163-14-216-131.ngrok-free.app/progress_chart/{user_id}"
+    
+        text_message = TextSendMessage(text="🎯 這是你目前的單字完成率！")
+    
         image_message = ImageSendMessage(
             original_content_url=image_url,
             preview_image_url=image_url
         )
-        line_bot_api.reply_message(event.reply_token, send_flex_menu(user_id))
+
+        menu_message = send_flex_menu(user_id)
+
+        # 一次回傳三個訊息：文字 + 圖片 + 選單
+        line_bot_api.reply_message(event.reply_token, [text_message, image_message, menu_message])
         return
+
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
+    # ✅ 忽略重送（Redelivery）事件，避免 Invalid reply token 錯誤
+    if event.delivery_context and event.delivery_context.is_redelivery:
+        print("🔁 [忽略] Redelivery 事件，不進行回覆")
+        return
+
     user_id = event.source.user_id
     data = event.postback.data
     params = dict(urllib.parse.parse_qsl(data))
@@ -387,9 +406,6 @@ def handle_postback(event):
         db.close()
 
     elif action == "progress":
-        user_id = event.source.user_id
-
-        # 計算完成率
         cursor = get_cursor()
         cursor.execute("SELECT COUNT(*) FROM vocabulary")
         total = cursor.fetchone()[0]
@@ -397,21 +413,14 @@ def handle_postback(event):
         cursor.execute("SELECT COUNT(*) FROM learning_status WHERE user_id = ?", (user_id,))
         learned = cursor.fetchone()[0]
 
-        if total == 0:
-            percent = 0.0
-        else:
-            percent = round((learned / total) * 100, 1)
+        percent = round((learned / total) * 100, 1) if total else 0.0
+        pie_url = f"https://a715-163-14-216-131.ngrok-free.app/progress_chart/{user_id}"
 
-        # 建立圖片網址（記得替換 ngrok 網址）
-        pie_url = f"https://1b71-163-14-216-131.ngrok-free.app/progress_chart/{user_id}"
-
-        # 傳送圖片 + 文字
         messages = [
             ImageSendMessage(original_content_url=pie_url, preview_image_url=pie_url),
-            TextSendMessage(text=f"🎯 你已完成 {percent}% 的單字學習（{learned}/{total}）")
+            TextSendMessage(text=f"🎯 你已經完成  {percent}% 的單字（{learned}/{total}）")
         ]
         line_bot_api.reply_message(event.reply_token, messages)
-
 
     elif action == "help":
         event.message = TextMessage(text="/help")
