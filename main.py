@@ -19,7 +19,12 @@ from review import (
 )
 from learn import LearnDB, handle_postback as handle_learn_postback
 from quiz import send_quiz_question
-
+import matplotlib.pyplot as plt
+from linebot.models import ImageSendMessage
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
+import io
 load_dotenv()
 
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -44,6 +49,39 @@ def get_user_profile(user_id):
     except LineBotApiError as e:
         print(f"取得使用者資訊錯誤: {e}")
         return "使用者"
+
+@app.get("/progress_chart/{user_id}")
+def progress_chart(user_id: str):
+    cursor = get_cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM vocabulary")
+    total = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM learning_status WHERE user_id = ?", (user_id,))
+    learned = cursor.fetchone()[0]
+
+    if total == 0:
+        percent = 0.0
+    else:
+        percent = round((learned / total) * 100, 1)
+
+    labels = ['已學習', '未學習']
+    sizes = [learned, total - learned]
+    explode = (0.05, 0)
+    colors = ['#4CAF50', '#EEEEEE']
+
+    fig, ax = plt.subplots()
+    ax.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%',
+           shadow=False, startangle=90, colors=colors, textprops={'fontsize': 12})
+    ax.axis('equal')
+    plt.title(f"單字完成率：{percent}% （{learned}/{total}）", fontsize=14)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    plt.close(fig)
+    buf.seek(0)
+
+    return Response(buf.getvalue(), media_type="image/png")
 
 def get_review_words(user_id, limit=10):
     cursor = get_cursor()
@@ -150,8 +188,8 @@ def handle_message(event):
         return
 
     if user_message == "選單":
-        line_bot_api.reply_message(event.reply_token, send_flex_menu())
-        return
+         line_bot_api.reply_message(event.reply_token, send_flex_menu(user_id))
+         return
 
     if user_message in ["/help", "說明"]:
         instruction_text = """這是一個幫助你學習單字的 LINE 機器人 ✨
@@ -215,6 +253,14 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(
             text="抱歉，我不太懂你的指令，可以試試看選單操作喔！"
         ))
+    if user_message == "完成率":
+        image_url = f"https://1b3e-163-14-216-131.ngrok-free.app/progress_chart/{user_id}"
+        image_message = ImageSendMessage(
+            original_content_url=image_url,
+            preview_image_url=image_url
+        )
+        line_bot_api.reply_message(event.reply_token, send_flex_menu(user_id))
+        return
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
@@ -341,8 +387,31 @@ def handle_postback(event):
         db.close()
 
     elif action == "progress":
-        event.message = TextMessage(text="完成率")
-        handle_message(event)
+        user_id = event.source.user_id
+
+        # 計算完成率
+        cursor = get_cursor()
+        cursor.execute("SELECT COUNT(*) FROM vocabulary")
+        total = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM learning_status WHERE user_id = ?", (user_id,))
+        learned = cursor.fetchone()[0]
+
+        if total == 0:
+            percent = 0.0
+        else:
+            percent = round((learned / total) * 100, 1)
+
+        # 建立圖片網址（記得替換 ngrok 網址）
+        pie_url = f"https://1b71-163-14-216-131.ngrok-free.app/progress_chart/{user_id}"
+
+        # 傳送圖片 + 文字
+        messages = [
+            ImageSendMessage(original_content_url=pie_url, preview_image_url=pie_url),
+            TextSendMessage(text=f"🎯 你已完成 {percent}% 的單字學習（{learned}/{total}）")
+        ]
+        line_bot_api.reply_message(event.reply_token, messages)
+
 
     elif action == "help":
         event.message = TextMessage(text="/help")
